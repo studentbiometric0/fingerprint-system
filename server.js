@@ -7,7 +7,6 @@ const cors = require("cors");
 const path = require("path");
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const nodemailer = require('nodemailer');
 
 const app = express();
 
@@ -364,241 +363,43 @@ app.post("/register", async (req, res) => {
 	return res.status(403).json({ error: 'Registration disabled. Only pre-seeded users may log in.' });
 });
 
-// Send a one-time 6-digit code to a pre-seeded user (no registration allowed)
-app.post('/send-code', async (req, res) => {
+// NOTE: Email send/OTP flows removed. The app now supports only simple email/password
+// login against the Users collection. If you previously used `/send-code` or
+// `/verify-code`, those routes and the Mailtrap/SendGrid/SMTP logic have been removed
+// to simplify the authentication surface as requested.
+
+// Simple email/password login: check Users collection and return a JWT when credentials match.
+// This restores the legacy login behavior (no email code flow required).
+app.post('/login', async (req, res) => {
 	try {
-		const { email } = req.body || {};
-		if (!email) return res.status(400).json({ error: 'Email is required' });
+		const { email, password } = req.body || {};
+		if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
+
 		const raw = String(email).trim();
 		const normalized = raw.toLowerCase();
 
 		// find user (exact then case-insensitive fallback)
 		let user = await User.findOne({ email: normalized });
 		if (!user) user = await User.findOne({ email: new RegExp(`^${raw.replace(/[.*+?^${}()|[\\]\\]/g,'\\$&')}$`, 'i') });
-		if (!user) return res.status(401).json({ error: 'Email not recognized' });
+		if (!user) return res.status(401).json({ error: 'Invalid email or password' });
 
-			// Prefer Mailtrap Sends API on platforms that block SMTP (e.g., Render). If MAILTRAP_API_TOKEN
-			// and MAILTRAP_INBOX_ID are provided, skip SMTP validation and use the HTTP API over HTTPS.
-			const mailtrapToken = process.env.MAILTRAP_API_TOKEN;
-			const mailtrapInbox = process.env.MAILTRAP_INBOX_ID;
-			let smtpHost = process.env.SMTP_HOST;
-			const smtpUser = process.env.SMTP_USER;
-			const smtpPass = process.env.SMTP_PASS;
-			const smtpPort = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined;
-			const smtpSecure = (process.env.SMTP_SECURE || 'false').toLowerCase() === 'true';
+		// Compare provided password with stored hash
+		const ok = await bcrypt.compare(String(password), user.password);
+		if (!ok) return res.status(401).json({ error: 'Invalid email or password' });
 
-			// If Mailtrap API is NOT configured, then validate SMTP settings as before.
-			if (!mailtrapToken || !mailtrapInbox) {
-				// Basic validation: SMTP_USER and SMTP_PASS are required. If SMTP_HOST looks like an email address
-				// (common misconfiguration), surface a clear error rather than attempting DNS on it.
-				if (!smtpUser || !smtpPass) {
-					console.error('/send-code: SMTP_USER or SMTP_PASS not configured in env');
-					return res.status(500).json({ error: 'SMTP credentials missing on server (check SMTP_USER and SMTP_PASS in .env) or provide Mailtrap credentials' });
-				}
-
-				if (!smtpHost) {
-					// try to infer a sensible default for common providers (gmail)
-					const maybeUser = String(smtpUser || '').toLowerCase();
-					if (maybeUser.endsWith('@gmail.com')) {
-						smtpHost = 'smtp.gmail.com';
-					}
-				}
-
-				if (!smtpHost) {
-					console.error('/send-code: SMTP_HOST not configured in env');
-					return res.status(500).json({ error: 'SMTP_HOST not configured on server (set SMTP_HOST in .env, e.g. smtp.gmail.com) or provide Mailtrap credentials' });
-				}
-
-				if (String(smtpHost).includes('@')) {
-					console.error('/send-code: SMTP_HOST appears to be an email address ->', smtpHost);
-					return res.status(500).json({ error: 'SMTP_HOST appears to be an email address. Set SMTP_HOST to your SMTP server host (e.g. smtp.gmail.com) not an email.' });
-				}
-			}
-
-		// generate 6-digit code
-		const code = String(Math.floor(100000 + Math.random() * 900000));
-		const hashed = await bcrypt.hash(code, 10);
-		user.mfaHash = hashed;
-		user.mfaExpires = new Date(Date.now() + (10 * 60 * 1000)); // 10 minutes
-		await user.save();
-
-			// Build the message payload common to both Mailtrap API and SMTP
-			const fromEmail = process.env.EMAIL_FROM_ADDRESS || process.env.SMTP_FROM || smtpUser || 'no-reply@example.com';
-			const fromName = process.env.EMAIL_FROM_NAME || '';
-			const subject = process.env.SEND_CODE_SUBJECT || 'Your login code';
-			const textBody = `Your login code is ${code}. It expires in 10 minutes.`;
-			const htmlBody = `<p>Your login code is <strong>${code}</strong>. It expires in 10 minutes.</p>`;
-
-			// Development bypass: when NODE_ENV=development and DEV_EMAIL_LOG=true, do not attempt remote send.
-			const devLogEnabled = (process.env.NODE_ENV === 'development' && (process.env.DEV_EMAIL_LOG || '').toLowerCase() === 'true');
-			if (devLogEnabled) {
-				console.log(`/send-code (DEV_LOG) -> code for ${user.email}: ${code}`);
-				return res.json({ sent: true, dev: true, message: 'Code logged to server console (development mode)' });
-			}
-
-			// If Mailtrap API is configured, prefer using it (works on Render since it's HTTPS)
-			if (mailtrapToken && mailtrapInbox) {
-				try {
-						// Note: Mailtrap's Send API (sandbox) does not accept an `inbox_id` top-level
-						// field in the JSON payload (it returns 400 unknown field "inbox_id").
-						// Remove `inbox_id` from the payload and rely on the API token to direct
-						// the message to the configured account. If you need to target a specific
-						// inbox, configure that in Mailtrap's dashboard or use the provider's
-						// documented option (not a top-level `inbox_id` here).
-						const payload = {
-							from: { email: fromEmail, name: fromName },
-							to: [{ email: user.email }],
-							subject: subject,
-							text: textBody,
-							html: htmlBody
-						};
-					const body = JSON.stringify(payload);
-					const apiUrl = process.env.MAILTRAP_API_URL || 'https://send.api.mailtrap.io/api/send';
-					const urlObj = new URL(apiUrl);
-
-					// Helper: mask token when logging
-					const mask = (t) => { try { if (!t) return '(none)'; return t.length > 8 ? (t.slice(0,4) + '…' + t.slice(-4)) : t; } catch(e) { return '(masked)'; } };
-
-					// Send attempt helper - resolves with { statusCode, body }
-					const doSend = (useBearer) => {
-						return new Promise((resolve, reject) => {
-							const headers = {
-								'Content-Type': 'application/json',
-								'Content-Length': Buffer.byteLength(body)
-							};
-							if (useBearer) headers['Authorization'] = `Bearer ${mailtrapToken}`;
-							else headers['Api-Token'] = mailtrapToken;
-
-							const options = {
-								hostname: urlObj.hostname,
-								port: urlObj.port || 443,
-								path: urlObj.pathname + (urlObj.search || ''),
-								method: 'POST',
-								headers
-							};
-
-							const req = https.request(options, (resp) => {
-								let respBody = '';
-								resp.setEncoding('utf8');
-								resp.on('data', (chunk) => respBody += chunk);
-								resp.on('end', () => resolve({ statusCode: resp.statusCode, body: respBody, headers: resp.headers }));
-							});
-							req.on('error', (err) => reject(err));
-							req.write(body);
-							req.end();
-						});
-					};
-
-					// Attempt with Api-Token header first
-					let attempt1;
-					try {
-						attempt1 = await doSend(false);
-					} catch (err) {
-						console.error('/send-code: Mailtrap request failed (attempt1)', err);
-						// Return a friendly error rather than bubbling raw exception which causes 500
-						return res.status(502).json({ error: 'Failed to contact Mailtrap API (network error)', detail: err.message || String(err) });
-					}
-
-					// Success on first attempt
-					if (attempt1 && attempt1.statusCode >= 200 && attempt1.statusCode < 300) {
-						return res.json({ sent: true, via: 'mailtrap' });
-					}
-
-					// If unauthorized (401) try Authorization: Bearer as fallback
-					if (attempt1 && attempt1.statusCode === 401) {
-						console.warn('/send-code: Mailtrap returned 401 with Api-Token header; retrying with Authorization: Bearer (masked token:', mask(mailtrapToken), ')');
-						let attempt2;
-						try {
-							attempt2 = await doSend(true);
-						} catch (err) {
-							console.error('/send-code: Mailtrap request failed (attempt2)', err);
-							return res.status(502).json({ error: 'Failed to contact Mailtrap API (network error on retry)', detail: err.message || String(err) });
-						}
-						if (attempt2 && attempt2.statusCode >= 200 && attempt2.statusCode < 300) {
-							return res.json({ sent: true, via: 'mailtrap' });
-						}
-						// Still failed - return informative error
-						console.error('/send-code: Mailtrap API send failed after retry', { status: attempt2 && attempt2.statusCode, body: attempt2 && attempt2.body });
-						// Try to parse JSON body if present to include errors property
-						let parsedBody = attempt2 && attempt2.body;
-						try { parsedBody = attempt2 && attempt2.body && typeof attempt2.body === 'string' ? JSON.parse(attempt2.body) : attempt2.body; } catch(e){ /* leave as string */ }
-						return res.status(502).json({ error: 'Mailtrap API returned error after retry', status: attempt2 && attempt2.statusCode, body: parsedBody });
-					}
-
-					// Other non-2xx from first attempt
-					console.error('/send-code: Mailtrap API send failed', { status: attempt1 && attempt1.statusCode, body: attempt1 && attempt1.body });
-					let parsed1 = attempt1 && attempt1.body;
-					try { parsed1 = attempt1 && attempt1.body && typeof attempt1.body === 'string' ? JSON.parse(attempt1.body) : attempt1.body; } catch(e) { /* keep string */ }
-					return res.status(502).json({ error: 'Mailtrap API returned error', status: attempt1 && attempt1.statusCode, body: parsed1 });
-				} catch (e) {
-					console.error('/send-code: Mailtrap API send failed', e);
-					return res.status(500).json({ error: 'Mailtrap API send failed: ' + (e && e.message ? e.message : String(e)) });
-				}
-			}
-
-			// Fallback: use existing SMTP via nodemailer
-			try {
-				const transporter = nodemailer.createTransport({ host: smtpHost, port: smtpPort || 587, secure: smtpSecure, auth: { user: smtpUser, pass: smtpPass } });
-				const mailOpts = {
-					from: `${fromName ? (fromName + ' ') : ''}<${fromEmail}>`,
-					to: user.email,
-					subject: subject,
-					text: textBody,
-					html: htmlBody
-				};
-				await transporter.sendMail(mailOpts);
-				return res.json({ sent: true, via: 'smtp' });
-			} catch (e) {
-				console.error('/send-code: failed to send email via SMTP', e);
-				if (e && (e.code === 'EAUTH' || e.responseCode === 535 || (e.response && /auth/i.test(String(e.response))))) {
-					return res.status(500).json({ error: 'SMTP authentication failed. Check SMTP_USER and SMTP_PASS. If using Gmail, create an App Password or allow SMTP access: https://support.google.com/mail/?p=BadCredentials' });
-				}
-				return res.status(500).json({ error: 'Failed to send email. Check SMTP settings and network connectivity.' });
-			}
-	} catch (err) {
-		console.error('/send-code error', err);
-		return res.status(500).json({ error: err.message });
-	}
-});
-
-// Verify the 6-digit code and return a JWT
-app.post('/verify-code', async (req, res) => {
-	try {
-		const { email, code } = req.body || {};
-		if (!email || !code) return res.status(400).json({ error: 'Email and code are required' });
-		const raw = String(email).trim();
-		const normalized = raw.toLowerCase();
-
-		let user = await User.findOne({ email: normalized });
-		if (!user) user = await User.findOne({ email: new RegExp(`^${raw.replace(/[.*+?^${}()|[\\]\\]/g,'\\$&')}$`, 'i') });
-		if (!user || !user.mfaHash || !user.mfaExpires) return res.status(401).json({ error: 'Invalid or expired code' });
-		if (new Date() > new Date(user.mfaExpires)) return res.status(401).json({ error: 'Code expired' });
-
-		const ok = await bcrypt.compare(String(code), user.mfaHash);
-		if (!ok) return res.status(401).json({ error: 'Invalid code' });
-
-		// clear mfa fields and issue token
-		user.mfaHash = undefined;
-		user.mfaExpires = undefined;
-		await user.save();
-
+		// Issue JWT
 		try {
 			const secret = process.env.JWT_SECRET || 'dev-secret';
 			const token = jwt.sign({ sub: user._id, email: user.email }, secret, { expiresIn: '8h' });
 			return res.json({ token });
 		} catch (e) {
-			console.warn('/verify-code: failed to sign JWT, returning demo token', e);
+			console.warn('/login: failed to sign JWT, returning demo token', e);
 			return res.json({ token: 'demo-token' });
 		}
 	} catch (err) {
-		console.error('/verify-code error', err);
+		console.error('/login error', err);
 		return res.status(500).json({ error: err.message });
 	}
-});
-
-// Disable the old /login route to avoid confusion; clients should use /send-code and /verify-code
-app.post('/login', (req, res) => {
-	return res.status(400).json({ error: 'Legacy login disabled. Use /send-code then /verify-code for code-based login.' });
 });
 // Update student details
 app.put("/students/:fid", async (req, res) => {
