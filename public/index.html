@@ -364,7 +364,7 @@
       </div>
 
       <div id="loginActions" style="margin-top:8px;display:flex;gap:8px;align-items:center;">
-        <button id="sendCodeBtn" type="button" style="padding:8px 10px;font-size:0.9em;font-weight:600;background:#16a085;color:#fff;border:none;border-radius:8px;cursor:pointer;">Send code</button>
+  <button id="sendCodeBtn" type="button" style="padding:8px 10px;font-size:0.9em;font-weight:600;background:#16a085;color:#fff;border:none;border-radius:8px;cursor:pointer;">Sign in</button>
         <button id="verifyCodeBtn" type="button" style="padding:8px 10px;font-size:0.9em;font-weight:600;background:#2b8a3e;color:#fff;border:none;border-radius:8px;cursor:pointer;display:none;">Verify</button>
         <button id="resendBtn" type="button" style="padding:8px 10px;font-size:0.85em;background:#f0f0f0;color:#333;border:1px solid #ddd;border-radius:8px;cursor:pointer;display:none;">Resend</button>
       </div>
@@ -3504,35 +3504,22 @@ document.addEventListener('DOMContentLoaded', function() {
       }
 
       async function doSendCode(email) {
+        // New behavior: call /login with email+password (simple auth) and handle token.
         const password = document.getElementById('loginPassword').value || '';
-        showMsg('Sending code...', false);
+        showMsg('Signing in...', false);
         try {
-          const res = await fetch('/send-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+          const res = await fetch('/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
           const j = await res.json();
-          if (res.ok) {
-            showMsg(j.message || 'Code sent. Check your email.', false);
-            codeRow.style.display = 'block';
-            // hide the email/password labels and inputs
-            const lblEmail = document.querySelector('label[for="loginEmail"]');
-            const lblPass = document.querySelector('label[for="loginPassword"]');
-            if (lblEmail) lblEmail.style.display = 'none';
-            if (lblPass) lblPass.style.display = 'none';
-            document.getElementById('loginPassword').style.display = 'none';
-            document.getElementById('loginEmail').style.display = 'none';
-            sendCodeBtn.style.display = 'none';
-            verifyCodeBtn.style.display = 'inline-block';
-            resendBtn.style.display = 'inline-block';
-            // show prompt with email
-            const cp = document.getElementById('codePrompt');
-            cp.style.display = 'block';
-            cp.textContent = `Type the 6-digit code sent to ${email}`;
-            // make card compact for verification
+          if (res.ok && j.token) {
+            localStorage.setItem('authToken', j.token);
             const loginContainer = document.getElementById('loginContainer');
-            if (loginContainer) loginContainer.classList.add('login-compact');
-            // start 2-minute timer
-            startResendTimer(120);
+            const dashboardContainer = document.getElementById('dashboardContainer');
+            if (loginContainer) loginContainer.style.display = 'none';
+            if (dashboardContainer) dashboardContainer.style.display = 'flex';
+            showMsg('Signed in', false);
+            return;
           } else {
-            showMsg(j.error || 'Failed to send code.');
+            showMsg(j.error || 'Invalid credentials.');
           }
         } catch (e) { showMsg('Error: ' + (e.message || e)); }
       }
