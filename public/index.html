@@ -1380,7 +1380,7 @@
               }
             }
             // Count unique attendees for this event - match by event._id if available
-            const attendees = new Set(logs.filter(l => String(l.event_id) === String(ev._id) && l.timeIn).map(l => l.fingerprintID));
+            const attendees = new Set(logs.filter(l => String(l.event_id) === String(ev._id) && l.timeIn && l.timeOut).map(l => l.fingerprintID));
           const rate = (expected > 0) ? (attendees.size / expected) * 100 : 0;
           if (expected > 0) {
             sumRates += rate;
@@ -1432,7 +1432,7 @@
       <canvas id="attendanceLevelEventChart" width="420" height="180" style="display:block;"></canvas>
     </div>
     <span style="font-size:1.05em;color:#0a4b8c;margin-top:0.5em;opacity:0.85;text-align:center;">Percentage (%) per event</span>
-  <button id="openPerformanceWindowBtn" style="width:100%;margin-top:20px;padding:10px 0;font-size:1.05em;font-weight:600;background:linear-gradient(90deg,#16a085 70%,#1abc9c 100%);color:#fff;border:none;border-radius:10px;box-shadow:0 2px 8px rgba(44,62,80,0.07);cursor:pointer;transition:background 0.2s;letter-spacing:1px;">Open Performance Window</button>
+  <!-- Open Performance Window removed -->
 <script>
 document.addEventListener("DOMContentLoaded", function() {
   var ctx = document.getElementById('attendanceLevelEventChart');
@@ -1476,7 +1476,7 @@ document.addEventListener("DOMContentLoaded", function() {
           }
         }
         // Match logs by event._id and count unique attendees
-        const attendees = new Set(logs.filter(l => String(l.event_id) === String(ev._id) && l.timeIn).map(l => l.fingerprintID));
+  const attendees = new Set(logs.filter(l => String(l.event_id) === String(ev._id) && l.timeIn && l.timeOut).map(l => l.fingerprintID));
         return expected > 0 ? (attendees.size / expected) * 100 : 0;
       });
       new Chart(ctx, {
@@ -1700,7 +1700,7 @@ document.addEventListener('DOMContentLoaded', function() {
             expected = students.filter(s => ev.participants.includes(s["YR AND SEC"]))?.length || 0;
           }
         }
-    const attendees = new Set(logs.filter(l => String(l.event_id) === String(ev._id) && l.timeIn).map(l => l.fingerprintID));
+  const attendees = new Set(logs.filter(l => String(l.event_id) === String(ev._id) && l.timeIn && l.timeOut).map(l => l.fingerprintID));
         const rate = expected > 0 ? (attendees.size / expected) * 100 : 0;
         return { name: ev.name, rate, attendees: attendees.size };
       });
@@ -1721,7 +1721,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
       }
       // Successful log-ins: logs with timeIn
-      let successful = logs.filter(l => l.timeIn).length;
+  let successful = logs.filter(l => l.timeIn && l.timeOut).length;
       // Failed log-ins: logs with error property or fallback to 0
       let failed = logs.filter(l => l.error || l.status === 'error').length;
       if (failed === 0 && logs.length && !('error' in logs[0]) && !('status' in logs[0])) failed = 0;
@@ -1732,6 +1732,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     content.appendChild(statsRow);
 
+    
     // Main Content Row
     var mainRow = document.createElement('div');
     mainRow.style.display = 'flex';
@@ -1868,7 +1869,7 @@ document.addEventListener('DOMContentLoaded', function() {
             expected = students.filter(s => ev.participants.includes(s["YR AND SEC"]))?.length || 0;
           }
         }
-  const attendees = new Set(logs.filter(l => String(l.event_id) === String(ev._id) && l.timeIn).map(l => l.fingerprintID));
+  const attendees = new Set(logs.filter(l => String(l.event_id) === String(ev._id) && l.timeIn && l.timeOut).map(l => l.fingerprintID));
         const rate = expected > 0 ? (attendees.size / expected) * 100 : 0;
         if (expected > 0) {
           sumRates += rate;
@@ -1911,7 +1912,7 @@ document.addEventListener('DOMContentLoaded', function() {
               expected = students.filter(s => ev.participants.includes(s["YR AND SEC"]))?.length || 0;
             }
           }
-    const attendees = new Set(logs.filter(l => String(l.event_id) === String(ev._id) && l.timeIn).map(l => l.fingerprintID));
+  const attendees = new Set(logs.filter(l => String(l.event_id) === String(ev._id) && l.timeIn && l.timeOut).map(l => l.fingerprintID));
           return expected > 0 ? (attendees.size / expected) * 100 : 0;
         });
         new Chart(ctx, {
@@ -1992,9 +1993,8 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
   <div class="report-summary-box" style="background:rgba(255,255,255,0.18);box-shadow:0 2px 12px rgba(44,62,80,0.13);border-radius:18px;padding:32px 40px;min-width:320px;max-width:600px;flex:1 1 0;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;min-height:120px;backdrop-filter: blur(2px);">
   <span class="summary-label" style="color:#111;font-size:1.05em;font-weight:600;letter-spacing:1px;text-transform:uppercase;text-align:center;margin-bottom:6px;line-height:1.2;font-family:Segoe UI, Arial, sans-serif;">Attendance Breakdown by Section</span>
-  <div style="width:100%;display:flex;align-items:center;justify-content:center;margin-bottom:6px;gap:12px;">
-    <label for="attendanceSectionEventSelect" style="font-weight:600;color:#1751b5;font-size:0.98em;">Event:</label>
-    <select id="attendanceSectionEventSelect" style="padding:6px 8px;border-radius:6px;border:1px solid #d3dbe3;background:#fff;color:#0a4b8c;min-width:220px;"></select>
+  <div style="width:100%;display:flex;align-items:center;justify-content:center;margin-bottom:6px;">
+    <select id="attendanceSectionEventSelect" style="padding:6px 8px;border-radius:6px;border:1px solid #d3dbe3;background:#fff;color:#0a4b8c;min-width:260px;max-width:60%;"></select>
   </div>
   <div style="display:flex;flex-direction:row;align-items:center;justify-content:flex-start;width:100%;margin-bottom:8px;gap:12px;">
     <div style="width:320px;max-width:100%;height:180px;display:flex;align-items:center;justify-content:flex-start;margin-left:38px;">
@@ -2122,7 +2122,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // For selected event, count unique attendees by section (match by event_id or legacy event_name)
         data = allSections.map(sec => {
           const sectionFIDs = students.filter(s => s["YR AND SEC"] === sec).map(s => s.FID);
-          const attendees = new Set(logs.filter(l => matchLogToEvent(l, eventId) && l.timeIn && sectionFIDs.includes(l.fingerprintID)).map(l => l.fingerprintID));
+                  const attendees = new Set(logs.filter(l => matchLogToEvent(l, eventId) && l.timeIn && l.timeOut && sectionFIDs.includes(l.fingerprintID)).map(l => l.fingerprintID));
           return attendees.size;
         });
       }
@@ -2176,7 +2176,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
   </script>
-  <button id="openPerformanceWindowBtn2" style="width:100%;margin-top:2px;padding:10px 0;font-size:1.05em;font-weight:600;background:linear-gradient(90deg,#16a085 70%,#1abc9c 100%);color:#fff;border:none;border-radius:10px;box-shadow:0 2px 8px rgba(44,62,80,0.07);cursor:pointer;transition:background 0.2s;letter-spacing:1px;">Open Performance Window 2</button>
+  <!-- Open Performance Window 2 removed -->
   <script>
     document.addEventListener('DOMContentLoaded', function() {
       var btn2 = document.getElementById('openPerformanceWindowBtn2');
@@ -2331,13 +2331,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (Array.isArray(ev.participants) && (ev.participants.includes('ALL') || ev.participants.includes(sec))) {
                   expected += sectionFIDs.length;
                   // Attended: logs for this event, this section
-              const attendees = new Set(logs.filter(l => String(l.event_id) === String(ev._id) && l.timeIn && sectionFIDs.includes(l.fingerprintID)).map(l => l.fingerprintID));
+              const attendees = new Set(logs.filter(l => String(l.event_id) === String(ev._id) && l.timeIn && l.timeOut && sectionFIDs.includes(l.fingerprintID)).map(l => l.fingerprintID));
                   attended += attendees.size;
                 }
               });
               const rate = expected > 0 ? (attended / expected) * 100 : 0;
               // Successful log-ins: logs with timeIn for this section
-              const successful = logs.filter(l => l.timeIn && sectionFIDs.includes(l.fingerprintID)).length;
+              const successful = logs.filter(l => l.timeIn && l.timeOut && sectionFIDs.includes(l.fingerprintID)).length;
               // Failed log-ins: logs with error/status=error for this section
               const failed = logs.filter(l => (l.error || l.status === 'error') && sectionFIDs.includes(l.fingerprintID)).length;
               return { sec, rate, successful, failed };
@@ -2560,7 +2560,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (Array.isArray(ev.participants) && (ev.participants.includes('ALL') || ev.participants.includes(sec))) {
                   expected += sectionFIDs.length;
                   // Attended: logs for this event, this section
-                  const attendees = logs.filter(l => String(l.event_id) === String(ev._id) && l.timeIn && sectionFIDs.includes(l.fingerprintID));
+                  const attendees = logs.filter(l => String(l.event_id) === String(ev._id) && l.timeIn && l.timeOut && sectionFIDs.includes(l.fingerprintID));
                   attended += new Set(attendees.map(l => l.fingerprintID)).size;
                   // Late log-ins: timeIn within 30min after event start
                   attendees.forEach(l => {
@@ -2785,7 +2785,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const relevantEventIds = new Set(relevantEvents.map(ev => String(ev._id)));
       const attendedEventIds = new Set(
         logs
-          .filter(l => String(l.fingerprintID) === String(student.FID) && l.timeIn && relevantEventIds.has(String(l.event_id)))
+          .filter(l => String(l.fingerprintID) === String(student.FID) && l.timeIn && l.timeOut && relevantEventIds.has(String(l.event_id)))
           .map(l => String(l.event_id))
       );
       const attendedCount = attendedEventIds.size;
@@ -2914,7 +2914,7 @@ document.addEventListener('DOMContentLoaded', function() {
           }
           // Only consider logs for relevant events (compare by event _id)
           const relevantEventIds = new Set(relevantEvents.map(ev => String(ev._id)));
-          const studentLogs = logs.filter(l => String(l.fingerprintID) === String(student.FID) && l.timeIn && relevantEventIds.has(String(l.event_id)));
+        const studentLogs = logs.filter(l => String(l.fingerprintID) === String(student.FID) && l.timeIn && l.timeOut && relevantEventIds.has(String(l.event_id)));
           // Compute punctuality according to requested rules:
           // - Early: arrival before scheduled time (log time < scheduled time)
           // - On Time: arrival within 1 hour after scheduled time (0 <= diffMin <= 60)
@@ -3092,7 +3092,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // For each event, check if student attended (has log with timeIn for this event and fingerprintID)
     const labels = events.map(ev => ev.name);
     const data = events.map(ev => {
-      const attended = logs.find(l => String(l.event_id) === String(ev._id) && String(l.fingerprintID) === String(student.FID) && l.timeIn);
+  const attended = logs.find(l => String(l.event_id) === String(ev._id) && String(l.fingerprintID) === String(student.FID) && l.timeIn && l.timeOut);
       return attended ? 1 : 0;
     });
     // Destroy previous chart if exists
@@ -3271,8 +3271,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const attendanceCounts = await Promise.all(events.map(async ev => {
               const logsRes = await fetch(`/logs?eventId=${ev._id}`);
               const logs = await logsRes.json();
-              // Count unique fingerprintIDs with timeIn
-              const attended = Array.isArray(logs) ? logs.filter(l => l.timeIn).map(l => l.fingerprintID) : [];
+              // Count unique fingerprintIDs with both timeIn and timeOut
+              const attended = Array.isArray(logs) ? logs.filter(l => l.timeIn && l.timeOut).map(l => l.fingerprintID) : [];
               const uniqueAttended = new Set(attended);
               return uniqueAttended.size;
             }));
@@ -4573,8 +4573,8 @@ document.addEventListener('DOMContentLoaded', function() {
                       fetch(`/logs?eventId=${ev._id}`)
                         .then(res => res.json())
                         .then(logs => {
-                          // Count unique fingerprintIDs with timeIn
-                          const attended = Array.isArray(logs) ? logs.filter(l => l.timeIn).map(l => l.fingerprintID) : [];
+                          // Count unique fingerprintIDs with both timeIn and timeOut
+                          const attended = Array.isArray(logs) ? logs.filter(l => l.timeIn && l.timeOut).map(l => l.fingerprintID) : [];
                           const uniqueAttended = new Set(attended);
                           return uniqueAttended.size;
                         })
