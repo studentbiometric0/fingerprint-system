@@ -212,7 +212,15 @@ app.delete("/events/:id", async (req, res) => {
   try {
     const deleted = await Event.findByIdAndDelete(req.params.id);
     if (!deleted) return res.status(404).json({ error: "Event not found." });
-    res.json({ message: "Event deleted successfully." });
+		// Also remove any attendance records tied to this event (by event_id or legacy event_name)
+		try {
+			const eventIdStr = String(deleted._id);
+			const delRes = await Attendance.deleteMany({ $or: [{ event_id: eventIdStr }, { event_name: deleted.name }] });
+			return res.json({ message: "Event deleted successfully.", attendanceDeleted: delRes.deletedCount });
+		} catch (e) {
+			console.error('Failed to delete attendance records for event', deleted._id, e);
+			return res.status(500).json({ error: 'Event deleted but failed to remove attendance records', detail: e && e.message ? e.message : String(e) });
+		}
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -363,14 +371,6 @@ app.post("/register", async (req, res) => {
 	return res.status(403).json({ error: 'Registration disabled. Only pre-seeded users may log in.' });
 });
 
-// NOTE: Email send/OTP flows removed. The app now supports only simple email/password
-// login against the Users collection. If you previously used `/send-code` or
-// `/verify-code`, those routes and the Mailtrap/SendGrid/SMTP logic have been removed
-// to simplify the authentication surface as requested.
-
-// Compatibility shim: return a clear message for callers still hitting /send-code
-// so the frontend doesn't log a 404. This returns 410 Gone with a JSON body
-// explaining the change and pointing consumers to `/login`.
 app.all('/send-code', (req, res) => {
 	return res.status(410).json({
 		error: 'send-code-removed',
