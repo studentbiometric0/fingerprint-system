@@ -1992,9 +1992,9 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
   <div class="report-summary-box" style="background:rgba(255,255,255,0.18);box-shadow:0 2px 12px rgba(44,62,80,0.13);border-radius:18px;padding:32px 40px;min-width:320px;max-width:600px;flex:1 1 0;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;min-height:120px;backdrop-filter: blur(2px);">
   <span class="summary-label" style="color:#111;font-size:1.05em;font-weight:600;letter-spacing:1px;text-transform:uppercase;text-align:center;margin-bottom:6px;line-height:1.2;font-family:Segoe UI, Arial, sans-serif;">Attendance Breakdown by Section</span>
-  <div style="width:100%;display:flex;align-items:center;justify-content:center;margin-bottom:6px;">
-    <!-- Event selector removed; showing latest event label -->
-    <div id="attendanceSectionEventLabel" style="font-weight:600;color:#1751b5;font-size:0.98em;"></div>
+  <div style="width:100%;display:flex;align-items:center;justify-content:center;margin-bottom:6px;gap:12px;">
+    <label for="attendanceSectionEventSelect" style="font-weight:600;color:#1751b5;font-size:0.98em;">Event:</label>
+    <select id="attendanceSectionEventSelect" style="padding:6px 8px;border-radius:6px;border:1px solid #d3dbe3;background:#fff;color:#0a4b8c;min-width:220px;"></select>
   </div>
   <div style="display:flex;flex-direction:row;align-items:center;justify-content:flex-start;width:100%;margin-bottom:8px;gap:12px;">
     <div style="width:320px;max-width:100%;height:180px;display:flex;align-items:center;justify-content:flex-start;margin-left:38px;">
@@ -2004,7 +2004,7 @@ document.addEventListener('DOMContentLoaded', function() {
   </div>
   <script>
   document.addEventListener('DOMContentLoaded', function() {
-  const eventLabelEl = document.getElementById('attendanceSectionEventLabel');
+  const eventSelect = document.getElementById('attendanceSectionEventSelect');
     const donutCanvas = document.getElementById('attendanceSectionDonutChart');
     const legendBox = document.getElementById('attendanceSectionLegend');
     let donutChartInstance = null;
@@ -2065,21 +2065,27 @@ document.addEventListener('DOMContentLoaded', function() {
         chosenEventId = String(last._id || last.name || '');
       }
 
-      // Set the label to the resolved event name when possible; otherwise leave an empty/neutral message
-      if (eventLabelEl) {
-        if (chosenEventObj && chosenEventObj.name) {
-          eventLabelEl.textContent = chosenEventObj.name;
-        } else if (chosenEventId) {
-          // try to resolve name from events array if not already resolved
-          const evObj = events.find(ev => String(ev._id) === String(chosenEventId) || ev.name === chosenEventId);
-          eventLabelEl.textContent = evObj && evObj.name ? evObj.name : 'Latest Event';
+      // Populate event select (include All option) and set default selection
+      if (eventSelect) {
+        let opts = '<option value="ALL">All Events</option>';
+        events.forEach(ev => { opts += `<option value="${ev._id}">${ev.name}</option>`; });
+        eventSelect.innerHTML = opts;
+        // Try to select the chosenEventId if resolved; otherwise select latest event or ALL
+        if (chosenEventId && Array.from(eventSelect.options).some(o => o.value === String(chosenEventId))) {
+          eventSelect.value = String(chosenEventId);
+        } else if (events.length) {
+          // default to most recent event
+          const latest = events[events.length - 1];
+          eventSelect.value = String(latest._id || 'ALL');
         } else {
-          eventLabelEl.textContent = 'Latest Event';
+          eventSelect.value = 'ALL';
         }
-      }
-
-      if (chosenEventId) {
-        renderDonut(chosenEventId);
+        // Render initial selection
+        renderDonut(eventSelect.value);
+        // Wire change
+        eventSelect.addEventListener('change', function() { renderDonut(this.value); });
+      } else {
+        if (chosenEventId) renderDonut(chosenEventId);
       }
     });
     // If an event select exists (removed in UI), wire it; otherwise ignore
@@ -2091,15 +2097,35 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function renderDonut(eventId) {
       // Find all sections
-      const allSections = Array.from(new Set(students.map(s => s["YR AND SEC"])));
-      // For each section, count unique attendees for this event
-      const data = allSections.map(sec => {
-        // Students in this section
-        const sectionFIDs = students.filter(s => s["YR AND SEC"] === sec).map(s => s.FID);
-        // Unique attendees in this section for this event (match by event _id)
-        const attendees = new Set(logs.filter(l => String(l.event_id) === String(eventId) && l.timeIn && sectionFIDs.includes(l.fingerprintID)).map(l => l.fingerprintID));
-        return attendees.size;
-      });
+      const allSections = Array.from(new Set(students.map(s => s["YR AND SEC"]).filter(Boolean)));
+      // Helper to match a log to an event id/name
+      const matchLogToEvent = (log, evId) => {
+        if (!log) return false;
+        try {
+          return String(log.event_id) === String(evId) || String(log.event_name) === String(evId);
+        } catch (e) { return false; }
+      };
+
+      let data = [];
+      if (String(eventId) === 'ALL') {
+        // Count unique attendees across all logs (each student counted once) and map to sections
+        const attendedFIDs = new Set(logs.filter(l => l && l.timeIn).map(l => String(l.fingerprintID)));
+        data = allSections.map(sec => {
+          const inSectionFIDs = new Set(students.filter(s => s["YR AND SEC"] === sec).map(s => String(s.FID)));
+          let count = 0;
+          for (const fid of attendedFIDs) {
+            if (inSectionFIDs.has(String(fid))) count++;
+          }
+          return count;
+        });
+      } else {
+        // For selected event, count unique attendees by section (match by event_id or legacy event_name)
+        data = allSections.map(sec => {
+          const sectionFIDs = students.filter(s => s["YR AND SEC"] === sec).map(s => s.FID);
+          const attendees = new Set(logs.filter(l => matchLogToEvent(l, eventId) && l.timeIn && sectionFIDs.includes(l.fingerprintID)).map(l => l.fingerprintID));
+          return attendees.size;
+        });
+      }
       // Render donut chart
       if (donutChartInstance && typeof donutChartInstance.destroy === 'function') donutChartInstance.destroy();
       donutChartInstance = new Chart(donutCanvas.getContext('2d'), {
