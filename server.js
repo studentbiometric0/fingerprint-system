@@ -455,32 +455,81 @@ app.post('/send-code', async (req, res) => {
 					const body = JSON.stringify(payload);
 					const apiUrl = process.env.MAILTRAP_API_URL || 'https://send.api.mailtrap.io/api/send';
 					const urlObj = new URL(apiUrl);
-					const options = {
-						hostname: urlObj.hostname,
-						port: urlObj.port || 443,
-						path: urlObj.pathname + (urlObj.search || ''),
-						method: 'POST',
-						headers: {
-							'Content-Type': 'application/json',
-							'Content-Length': Buffer.byteLength(body),
-							'Api-Token': mailtrapToken
-						}
-					};
-					await new Promise((resolve, reject) => {
-						const req = https.request(options, (resp) => {
-							let respBody = '';
-							resp.setEncoding('utf8');
-							resp.on('data', (chunk) => respBody += chunk);
-							resp.on('end', () => {
-								if (resp.statusCode >= 200 && resp.statusCode < 300) return resolve(respBody);
-								return reject(new Error(`Mailtrap API returned ${resp.statusCode}: ${respBody}`));
+
+					// Helper: mask token when logging
+					const mask = (t) => { try { if (!t) return '(none)'; return t.length > 8 ? (t.slice(0,4) + '…' + t.slice(-4)) : t; } catch(e) { return '(masked)'; } };
+
+					// Send attempt helper - resolves with { statusCode, body }
+					const doSend = (useBearer) => {
+						return new Promise((resolve, reject) => {
+							const headers = {
+								'Content-Type': 'application/json',
+								'Content-Length': Buffer.byteLength(body)
+							};
+							if (useBearer) headers['Authorization'] = `Bearer ${mailtrapToken}`;
+							else headers['Api-Token'] = mailtrapToken;
+
+							const options = {
+								hostname: urlObj.hostname,
+								port: urlObj.port || 443,
+								path: urlObj.pathname + (urlObj.search || ''),
+								method: 'POST',
+								headers
+							};
+
+							const req = https.request(options, (resp) => {
+								let respBody = '';
+								resp.setEncoding('utf8');
+								resp.on('data', (chunk) => respBody += chunk);
+								resp.on('end', () => resolve({ statusCode: resp.statusCode, body: respBody, headers: resp.headers }));
 							});
+							req.on('error', (err) => reject(err));
+							req.write(body);
+							req.end();
 						});
-						req.on('error', (err) => reject(err));
-						req.write(body);
-						req.end();
-					});
-					return res.json({ sent: true, via: 'mailtrap' });
+					};
+
+					// Attempt with Api-Token header first
+					let attempt1;
+					try {
+						attempt1 = await doSend(false);
+					} catch (err) {
+						console.error('/send-code: Mailtrap request failed (attempt1)', err);
+						// Return a friendly error rather than bubbling raw exception which causes 500
+						return res.status(502).json({ error: 'Failed to contact Mailtrap API (network error)', detail: err.message || String(err) });
+					}
+
+					// Success on first attempt
+					if (attempt1 && attempt1.statusCode >= 200 && attempt1.statusCode < 300) {
+						return res.json({ sent: true, via: 'mailtrap' });
+					}
+
+					// If unauthorized (401) try Authorization: Bearer as fallback
+					if (attempt1 && attempt1.statusCode === 401) {
+						console.warn('/send-code: Mailtrap returned 401 with Api-Token header; retrying with Authorization: Bearer (masked token:', mask(mailtrapToken), ')');
+						let attempt2;
+						try {
+							attempt2 = await doSend(true);
+						} catch (err) {
+							console.error('/send-code: Mailtrap request failed (attempt2)', err);
+							return res.status(502).json({ error: 'Failed to contact Mailtrap API (network error on retry)', detail: err.message || String(err) });
+						}
+						if (attempt2 && attempt2.statusCode >= 200 && attempt2.statusCode < 300) {
+							return res.json({ sent: true, via: 'mailtrap' });
+						}
+						// Still failed - return informative error
+						console.error('/send-code: Mailtrap API send failed after retry', { status: attempt2 && attempt2.statusCode, body: attempt2 && attempt2.body });
+						// Try to parse JSON body if present to include errors property
+						let parsedBody = attempt2 && attempt2.body;
+						try { parsedBody = attempt2 && attempt2.body && typeof attempt2.body === 'string' ? JSON.parse(attempt2.body) : attempt2.body; } catch(e){ /* leave as string */ }
+						return res.status(502).json({ error: 'Mailtrap API returned error after retry', status: attempt2 && attempt2.statusCode, body: parsedBody });
+					}
+
+					// Other non-2xx from first attempt
+					console.error('/send-code: Mailtrap API send failed', { status: attempt1 && attempt1.statusCode, body: attempt1 && attempt1.body });
+					let parsed1 = attempt1 && attempt1.body;
+					try { parsed1 = attempt1 && attempt1.body && typeof attempt1.body === 'string' ? JSON.parse(attempt1.body) : attempt1.body; } catch(e) { /* keep string */ }
+					return res.status(502).json({ error: 'Mailtrap API returned error', status: attempt1 && attempt1.statusCode, body: parsed1 });
 				} catch (e) {
 					console.error('/send-code: Mailtrap API send failed', e);
 					return res.status(500).json({ error: 'Mailtrap API send failed: ' + (e && e.message ? e.message : String(e)) });
