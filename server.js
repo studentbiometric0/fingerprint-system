@@ -439,14 +439,19 @@ app.post('/send-code', async (req, res) => {
 			// If Mailtrap API is configured, prefer using it (works on Render since it's HTTPS)
 			if (mailtrapToken && mailtrapInbox) {
 				try {
-					const payload = {
-						inbox_id: String(mailtrapInbox),
-						from: { email: fromEmail, name: fromName },
-						to: [{ email: user.email }],
-						subject: subject,
-						text: textBody,
-						html: htmlBody
-					};
+						// Note: Mailtrap's Send API (sandbox) does not accept an `inbox_id` top-level
+						// field in the JSON payload (it returns 400 unknown field "inbox_id").
+						// Remove `inbox_id` from the payload and rely on the API token to direct
+						// the message to the configured account. If you need to target a specific
+						// inbox, configure that in Mailtrap's dashboard or use the provider's
+						// documented option (not a top-level `inbox_id` here).
+						const payload = {
+							from: { email: fromEmail, name: fromName },
+							to: [{ email: user.email }],
+							subject: subject,
+							text: textBody,
+							html: htmlBody
+						};
 					const body = JSON.stringify(payload);
 					const apiUrl = process.env.MAILTRAP_API_URL || 'https://send.api.mailtrap.io/api/send';
 					const urlObj = new URL(apiUrl);
