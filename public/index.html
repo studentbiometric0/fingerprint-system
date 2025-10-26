@@ -1428,8 +1428,8 @@
   <div class="analytics-extra-row" style="display:flex;flex-direction:row;gap:18px;justify-content:center;align-items:stretch;margin:18px 0 0 0;padding:0;width:100%;">
   <div class="report-summary-box" style="background:rgba(255,255,255,0.18);box-shadow:0 2px 12px rgba(44,62,80,0.13);border-radius:18px;padding:32px 40px;min-width:320px;max-width:600px;flex:1 1 0;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;min-height:220px;backdrop-filter: blur(2px);">
   <span class="summary-label" style="color:#111;font-size:1.05em;font-weight:600;letter-spacing:1px;text-transform:uppercase;text-align:center;margin-bottom:6px;line-height:1.2;font-family:Segoe UI, Arial, sans-serif;">Attendance Level Per Event</span>
-    <div style="width:440px;max-width:100%;height:200px;display:flex;align-items:center;justify-content:center;margin-bottom:4px;">
-      <canvas id="attendanceLevelEventChart" width="420" height="180" style="display:block;"></canvas>
+    <div style="width:440px;max-width:100%;height:250px;display:flex;align-items:center;justify-content:center;margin-bottom:4px;">
+      <canvas id="attendanceLevelEventChart" width="420" height="225" style="display:block;"></canvas>
     </div>
     <span style="font-size:1.05em;color:#0a4b8c;margin-top:0.5em;opacity:0.85;text-align:center;">Percentage (%) per event</span>
   <!-- Open Performance Window removed -->
@@ -2629,8 +2629,18 @@ document.addEventListener('DOMContentLoaded', function() {
       fetch('/logs').then(r => r.json())
     ]).then(([events, logs]) => {
       // Find events with no attendance records (no logs for that event)
-      const eventsWithLogs = new Set(logs.map(l => l.event_id));
-      let upcoming = events.filter(ev => !eventsWithLogs.has(ev.name));
+      // Build a set that includes both event_id values and event_name values found in logs
+      const eventsWithLogs = new Set();
+      logs.forEach(l => {
+        if (l.event_id) eventsWithLogs.add(String(l.event_id));
+        if (l.event_name) eventsWithLogs.add(String(l.event_name));
+      });
+      // An event is considered to have logs if its _id or its name appears in the logs set
+      let upcoming = events.filter(ev => {
+        const idStr = ev._id ? String(ev._id) : '';
+        const nameStr = ev.name ? String(ev.name) : '';
+        return !eventsWithLogs.has(idStr) && !eventsWithLogs.has(nameStr);
+      });
       // Sort by soonest date (ascending)
       upcoming.sort((a, b) => {
         // Try to parse date as YYYY-MM-DD or similar
