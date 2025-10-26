@@ -570,7 +570,6 @@
                           if (currentStatusFilter === 'all') return true;
                           if (currentStatusFilter === 'pending') return r.status === 'pending';
                           if (currentStatusFilter === 'sent') return r.status === 'sent'; // placeholder: backend support required
-                          if (currentStatusFilter === 'error') return r.status === 'error'; // placeholder
                           return r.status === currentStatusFilter;
                         });
                         // apply search
@@ -696,7 +695,7 @@
                   <button class="ecert-filter-btn" data-filter="all" style="background:transparent;color:#074c3a;border:1px solid rgba(7,76,58,0.12);border-radius:6px;padding:6px 12px;font-size:0.95em;font-weight:600;">Show All</button>
                   <button class="ecert-filter-btn" data-filter="pending" style="background:transparent;color:#074c3a;border:1px solid rgba(7,76,58,0.12);border-radius:6px;padding:6px 12px;font-size:0.95em;font-weight:600;">Show Qualified Only</button>
                   <button class="ecert-filter-btn" data-filter="sent" style="background:transparent;color:#074c3a;border:1px solid rgba(7,76,58,0.12);border-radius:6px;padding:6px 12px;font-size:0.95em;font-weight:600;">Show Sent Only</button>
-                  <button class="ecert-filter-btn" data-filter="error" style="background:transparent;color:#074c3a;border:1px solid rgba(7,76,58,0.12);border-radius:6px;padding:6px 12px;font-size:0.95em;font-weight:600;">Show Error Only</button>
+                  <!-- 'Show Error Only' removed as requested -->
                 </div>
                 <script>
                 (function(){
