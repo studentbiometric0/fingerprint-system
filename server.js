@@ -368,6 +368,16 @@ app.post("/register", async (req, res) => {
 // `/verify-code`, those routes and the Mailtrap/SendGrid/SMTP logic have been removed
 // to simplify the authentication surface as requested.
 
+// Compatibility shim: return a clear message for callers still hitting /send-code
+// so the frontend doesn't log a 404. This returns 410 Gone with a JSON body
+// explaining the change and pointing consumers to `/login`.
+app.all('/send-code', (req, res) => {
+	return res.status(410).json({
+		error: 'send-code-removed',
+		message: 'OTP/email send endpoints were removed. Use /login with email and password for authentication.'
+	});
+});
+
 // Simple email/password login: check Users collection and return a JWT when credentials match.
 // This restores the legacy login behavior (no email code flow required).
 app.post('/login', async (req, res) => {
