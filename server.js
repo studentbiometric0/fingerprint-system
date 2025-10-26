@@ -377,36 +377,42 @@ app.post('/send-code', async (req, res) => {
 		if (!user) user = await User.findOne({ email: new RegExp(`^${raw.replace(/[.*+?^${}()|[\\]\\]/g,'\\$&')}$`, 'i') });
 		if (!user) return res.status(401).json({ error: 'Email not recognized' });
 
-			// require SMTP config (validate and attempt a small inference for Gmail users)
+			// Prefer Mailtrap Sends API on platforms that block SMTP (e.g., Render). If MAILTRAP_API_TOKEN
+			// and MAILTRAP_INBOX_ID are provided, skip SMTP validation and use the HTTP API over HTTPS.
+			const mailtrapToken = process.env.MAILTRAP_API_TOKEN;
+			const mailtrapInbox = process.env.MAILTRAP_INBOX_ID;
 			let smtpHost = process.env.SMTP_HOST;
 			const smtpUser = process.env.SMTP_USER;
 			const smtpPass = process.env.SMTP_PASS;
 			const smtpPort = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined;
 			const smtpSecure = (process.env.SMTP_SECURE || 'false').toLowerCase() === 'true';
 
-			// Basic validation: SMTP_USER and SMTP_PASS are required. If SMTP_HOST looks like an email address
-			// (common misconfiguration), surface a clear error rather than attempting DNS on it.
-			if (!smtpUser || !smtpPass) {
-				console.error('/send-code: SMTP_USER or SMTP_PASS not configured in env');
-				return res.status(500).json({ error: 'SMTP credentials missing on server (check SMTP_USER and SMTP_PASS in .env)' });
-			}
-
-			if (!smtpHost) {
-				// try to infer a sensible default for common providers (gmail)
-				const maybeUser = String(smtpUser || '').toLowerCase();
-				if (maybeUser.endsWith('@gmail.com')) {
-					smtpHost = 'smtp.gmail.com';
+			// If Mailtrap API is NOT configured, then validate SMTP settings as before.
+			if (!mailtrapToken || !mailtrapInbox) {
+				// Basic validation: SMTP_USER and SMTP_PASS are required. If SMTP_HOST looks like an email address
+				// (common misconfiguration), surface a clear error rather than attempting DNS on it.
+				if (!smtpUser || !smtpPass) {
+					console.error('/send-code: SMTP_USER or SMTP_PASS not configured in env');
+					return res.status(500).json({ error: 'SMTP credentials missing on server (check SMTP_USER and SMTP_PASS in .env) or provide Mailtrap credentials' });
 				}
-			}
 
-			if (!smtpHost) {
-				console.error('/send-code: SMTP_HOST not configured in env');
-				return res.status(500).json({ error: 'SMTP_HOST not configured on server (set SMTP_HOST in .env, e.g. smtp.gmail.com)' });
-			}
+				if (!smtpHost) {
+					// try to infer a sensible default for common providers (gmail)
+					const maybeUser = String(smtpUser || '').toLowerCase();
+					if (maybeUser.endsWith('@gmail.com')) {
+						smtpHost = 'smtp.gmail.com';
+					}
+				}
 
-			if (String(smtpHost).includes('@')) {
-				console.error('/send-code: SMTP_HOST appears to be an email address ->', smtpHost);
-				return res.status(500).json({ error: 'SMTP_HOST appears to be an email address. Set SMTP_HOST to your SMTP server host (e.g. smtp.gmail.com) not an email.' });
+				if (!smtpHost) {
+					console.error('/send-code: SMTP_HOST not configured in env');
+					return res.status(500).json({ error: 'SMTP_HOST not configured on server (set SMTP_HOST in .env, e.g. smtp.gmail.com) or provide Mailtrap credentials' });
+				}
+
+				if (String(smtpHost).includes('@')) {
+					console.error('/send-code: SMTP_HOST appears to be an email address ->', smtpHost);
+					return res.status(500).json({ error: 'SMTP_HOST appears to be an email address. Set SMTP_HOST to your SMTP server host (e.g. smtp.gmail.com) not an email.' });
+				}
 			}
 
 		// generate 6-digit code
@@ -416,35 +422,85 @@ app.post('/send-code', async (req, res) => {
 		user.mfaExpires = new Date(Date.now() + (10 * 60 * 1000)); // 10 minutes
 		await user.save();
 
-		// send email
-		const transporter = nodemailer.createTransport({ host: smtpHost, port: smtpPort || 587, secure: smtpSecure, auth: { user: smtpUser, pass: smtpPass } });
-		const mailOpts = {
-			from: process.env.SMTP_FROM || smtpUser,
-			to: user.email,
-			subject: process.env.SEND_CODE_SUBJECT || 'Your login code',
-			text: `Your login code is ${code}. It expires in 10 minutes.`,
-			html: `<p>Your login code is <strong>${code}</strong>. It expires in 10 minutes.</p>`
-		};
-			// Development bypass: when NODE_ENV=development and DEV_EMAIL_LOG=true, do not attempt SMTP send.
+			// Build the message payload common to both Mailtrap API and SMTP
+			const fromEmail = process.env.EMAIL_FROM_ADDRESS || process.env.SMTP_FROM || smtpUser || 'no-reply@example.com';
+			const fromName = process.env.EMAIL_FROM_NAME || '';
+			const subject = process.env.SEND_CODE_SUBJECT || 'Your login code';
+			const textBody = `Your login code is ${code}. It expires in 10 minutes.`;
+			const htmlBody = `<p>Your login code is <strong>${code}</strong>. It expires in 10 minutes.</p>`;
+
+			// Development bypass: when NODE_ENV=development and DEV_EMAIL_LOG=true, do not attempt remote send.
 			const devLogEnabled = (process.env.NODE_ENV === 'development' && (process.env.DEV_EMAIL_LOG || '').toLowerCase() === 'true');
 			if (devLogEnabled) {
-				console.log(`/send-code (DEV_LOG) -> code for ${user.email}: [logged to server console]`);
-				// Note: code itself is not included in the response for safety, but it is printed to server logs in dev mode.
+				console.log(`/send-code (DEV_LOG) -> code for ${user.email}: ${code}`);
 				return res.json({ sent: true, dev: true, message: 'Code logged to server console (development mode)' });
 			}
 
+			// If Mailtrap API is configured, prefer using it (works on Render since it's HTTPS)
+			if (mailtrapToken && mailtrapInbox) {
+				try {
+					const payload = {
+						inbox_id: String(mailtrapInbox),
+						from: { email: fromEmail, name: fromName },
+						to: [{ email: user.email }],
+						subject: subject,
+						text: textBody,
+						html: htmlBody
+					};
+					const body = JSON.stringify(payload);
+					const apiUrl = process.env.MAILTRAP_API_URL || 'https://send.api.mailtrap.io/api/send';
+					const urlObj = new URL(apiUrl);
+					const options = {
+						hostname: urlObj.hostname,
+						port: urlObj.port || 443,
+						path: urlObj.pathname + (urlObj.search || ''),
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							'Content-Length': Buffer.byteLength(body),
+							'Api-Token': mailtrapToken
+						}
+					};
+					await new Promise((resolve, reject) => {
+						const req = https.request(options, (resp) => {
+							let respBody = '';
+							resp.setEncoding('utf8');
+							resp.on('data', (chunk) => respBody += chunk);
+							resp.on('end', () => {
+								if (resp.statusCode >= 200 && resp.statusCode < 300) return resolve(respBody);
+								return reject(new Error(`Mailtrap API returned ${resp.statusCode}: ${respBody}`));
+							});
+						});
+						req.on('error', (err) => reject(err));
+						req.write(body);
+						req.end();
+					});
+					return res.json({ sent: true, via: 'mailtrap' });
+				} catch (e) {
+					console.error('/send-code: Mailtrap API send failed', e);
+					return res.status(500).json({ error: 'Mailtrap API send failed: ' + (e && e.message ? e.message : String(e)) });
+				}
+			}
+
+			// Fallback: use existing SMTP via nodemailer
 			try {
+				const transporter = nodemailer.createTransport({ host: smtpHost, port: smtpPort || 587, secure: smtpSecure, auth: { user: smtpUser, pass: smtpPass } });
+				const mailOpts = {
+					from: `${fromName ? (fromName + ' ') : ''}<${fromEmail}>`,
+					to: user.email,
+					subject: subject,
+					text: textBody,
+					html: htmlBody
+				};
 				await transporter.sendMail(mailOpts);
+				return res.json({ sent: true, via: 'smtp' });
 			} catch (e) {
-				// Improve error message for common SMTP auth failures
-				console.error('/send-code: failed to send email', e);
+				console.error('/send-code: failed to send email via SMTP', e);
 				if (e && (e.code === 'EAUTH' || e.responseCode === 535 || (e.response && /auth/i.test(String(e.response))))) {
 					return res.status(500).json({ error: 'SMTP authentication failed. Check SMTP_USER and SMTP_PASS. If using Gmail, create an App Password or allow SMTP access: https://support.google.com/mail/?p=BadCredentials' });
 				}
 				return res.status(500).json({ error: 'Failed to send email. Check SMTP settings and network connectivity.' });
 			}
-
-			return res.json({ sent: true });
 	} catch (err) {
 		console.error('/send-code error', err);
 		return res.status(500).json({ error: err.message });
@@ -1279,3 +1335,15 @@ section
 // ================= SERVER =================
 const PORT = 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+
+// Diagnostic route: report which mail configuration is available (safe: does not return secrets)
+app.get('/mail-config', (req, res) => {
+	try {
+		const hasMailtrap = !!(process.env.MAILTRAP_API_TOKEN && process.env.MAILTRAP_INBOX_ID);
+		const hasSmtp = !!(process.env.SMTP_USER && process.env.SMTP_PASS && process.env.SMTP_HOST);
+		const prefer = hasMailtrap ? 'mailtrap' : (hasSmtp ? 'smtp' : 'none');
+		return res.json({ mailtrap: hasMailtrap, smtp: hasSmtp, prefer });
+	} catch (e) {
+		return res.status(500).json({ error: 'Failed to read mail config' });
+	}
+});
