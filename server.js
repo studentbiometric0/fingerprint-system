@@ -809,6 +809,37 @@ app.get("/logs", async (req, res) => {
   }
 });
 
+// Modify or delete attendance fields for a specific attendance record
+// POST /attendance/:id/modify  with JSON { action: 'delete-time-in'|'delete-time-out'|'delete-both' }
+app.post('/attendance/:id/modify', async (req, res) => {
+	try {
+		const id = req.params.id;
+		const { action } = req.body || {};
+		if (!action) return res.status(400).json({ error: 'action is required' });
+		const record = await Attendance.findById(id);
+		if (!record) return res.status(404).json({ error: 'Attendance record not found' });
+
+		if (action === 'delete-time-in') {
+			record.timeIn = null;
+			await record.save();
+			return res.json({ message: 'Time-In deleted', record });
+		}
+		if (action === 'delete-time-out') {
+			record.timeOut = null;
+			await record.save();
+			return res.json({ message: 'Time-Out deleted', record });
+		}
+		if (action === 'delete-both') {
+			await Attendance.findByIdAndDelete(id);
+			return res.json({ message: 'Attendance record deleted' });
+		}
+		return res.status(400).json({ error: 'Unknown action' });
+	} catch (err) {
+		console.error('/attendance/:id/modify error', err);
+		return res.status(500).json({ error: err.message });
+	}
+});
+
 // Get all students
 app.get("/students", async (req, res) => {
   try {
