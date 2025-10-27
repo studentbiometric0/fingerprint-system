@@ -4066,6 +4066,7 @@ document.addEventListener('DOMContentLoaded', function() {
           <select id='attendanceYrSecFilter' style='max-width:180px;'></select>
           <button id='printAttendanceBtn' style='margin-left:18px; background:#1abc9c; color:#fff; border:none; padding:8px 18px; border-radius:6px; font-size:1em; font-weight:600; cursor:pointer;'>Print</button>
         </div>
+        <div id='manualLoggingWrap' style='margin-bottom:12px;'></div>
         <div id='attendanceSheetTableWrap' style='margin-bottom:18px;'></div>
         <button id='closeAttendanceModalBtn' style='margin-top:10px; background:#bbb; color:#fff; border:none; padding:10px 24px; border-radius:6px; cursor:pointer; font-size:1em; font-weight:600;'>Close</button>
       </div>`;
@@ -4079,8 +4080,8 @@ document.addEventListener('DOMContentLoaded', function() {
   fetch('/students'),
   fetch(`/logs?eventId=${eventId}`)
       ]);
-      const allStudents = await studentsRes.json();
-      const logs = await logsRes.json();
+  const allStudents = await studentsRes.json();
+  let logs = await logsRes.json();
 
       // Normalize event participants (supports legacy array or new object)
       let participantsNorm = { sections: [], students: [] };
@@ -4135,6 +4136,78 @@ document.addEventListener('DOMContentLoaded', function() {
       const filterSelect = document.getElementById('attendanceYrSecFilter');
       filterSelect.innerHTML = options.map(opt => `<option value="${opt}">${opt}</option>`).join("");
       filterSelect.value = 'ALL';
+      // Manual Logging UI: quick search + Log Time when device fails
+      try {
+        const manualWrap = document.getElementById('manualLoggingWrap');
+        if (manualWrap) {
+          manualWrap.innerHTML = `
+            <div style='display:flex;gap:8px;align-items:center;flex-wrap:wrap;'>
+              <input id='manualSearchName' placeholder='Search student name' style='flex:1;min-width:160px;padding:8px;border:1px solid #ddd;border-radius:6px;' />
+              <select id='manualSearchResults' style='min-width:260px;padding:8px;border:1px solid #ddd;border-radius:6px;'></select>
+              <button id='manualLogBtn' style='background:#2563eb;color:#fff;padding:8px 14px;border:none;border-radius:6px;cursor:pointer;font-weight:600;'>Log Time</button>
+              <span id='manualLogMsg' style='margin-left:8px;color:green;'></span>
+            </div>`;
+
+          const searchInput = document.getElementById('manualSearchName');
+          const resultsSelect = document.getElementById('manualSearchResults');
+          const manualLogBtn = document.getElementById('manualLogBtn');
+          const manualLogMsg = document.getElementById('manualLogMsg');
+
+          function populateManualResults(q) {
+            const val = (q || '').toString().trim().toLowerCase();
+            const matches = (displayStudents || []).filter(s => (s.NAME || '').toString().toLowerCase().includes(val));
+            if (!matches || matches.length === 0) {
+              resultsSelect.innerHTML = `<option value=''>No match</option>`;
+              return;
+            }
+            resultsSelect.innerHTML = matches.slice(0,100).map(m => `<option value='${m.FID}'>${(m.NAME||'').replace(/"/g,'') } — ${m['STUDENT NO']||''} — FID:${m.FID}</option>`).join('');
+          }
+
+          searchInput.addEventListener('input', function() { populateManualResults(this.value); });
+          // initialize with empty query to show all visible participants (or none if many)
+          populateManualResults('');
+
+          manualLogBtn.addEventListener('click', async function() {
+            manualLogMsg.textContent = '';
+            const fidVal = resultsSelect.value;
+            if (!fidVal) { manualLogMsg.style.color = 'red'; manualLogMsg.textContent = 'Select a student first'; return; }
+            const fid = Number(fidVal);
+            if (isNaN(fid)) { manualLogMsg.style.color = 'red'; manualLogMsg.textContent = 'Invalid FID selected'; return; }
+            manualLogBtn.disabled = true;
+            manualLogBtn.textContent = 'Logging...';
+            try {
+              const resp = await fetch('/esp-log', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ fingerprintID: fid, eventId: eventId })
+              });
+              const data = await resp.json();
+              if (resp.ok) {
+                manualLogMsg.style.color = 'green';
+                manualLogMsg.textContent = data.message || 'Logged';
+                // refresh logs and re-render table
+                try {
+                  const refreshed = await fetch(`/logs?eventId=${eventId}`);
+                  if (refreshed.ok) {
+                    logs = await refreshed.json();
+                    // re-render table with updated logs
+                    renderFilteredAttendanceTable();
+                  }
+                } catch (e) { /* ignore refresh errors */ }
+              } else {
+                manualLogMsg.style.color = 'red';
+                manualLogMsg.textContent = data.error || (data.message ? data.message : 'Failed to log');
+              }
+            } catch (err) {
+              manualLogMsg.style.color = 'red';
+              manualLogMsg.textContent = 'Error: ' + err.message;
+            } finally {
+              manualLogBtn.disabled = false;
+              manualLogBtn.textContent = 'Log Time';
+            }
+          });
+        }
+      } catch (e) { console.error('manual logging init error', e); }
       // Pagination state
       let currentPage = 1;
       const rowsPerPage = 10;
