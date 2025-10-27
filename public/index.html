@@ -4047,7 +4047,7 @@ document.addEventListener('DOMContentLoaded', function() {
       modal.style.display = 'flex';
       modal.innerHTML = `<div style='
         background:#fff;
-        padding:36px 32px 32px 32px;
+        padding:24px 20px 20px 20px;
         border-radius:14px;
         box-shadow:0 2px 12px rgba(44,62,80,0.07);
         min-width:340px;
@@ -4059,16 +4059,14 @@ document.addEventListener('DOMContentLoaded', function() {
         display:flex;
         flex-direction:column;
         align-items:stretch;'>
-        <h3 style='margin-top:0; margin-bottom:8px; color:#1abc9c; font-size:1.7em; font-weight:700; letter-spacing:1px;'>Attendance Sheet</h3>
-        <div style='margin-bottom:18px; color:#2563eb; font-size:1.15em; font-weight:600;'>${eventName ? 'Event: ' + eventName : ''}</div>
-        <div style='margin-bottom:18px; display:flex; align-items:center; justify-content:space-between;'>
-          <div style='display:flex;align-items:center;'>
-            <label for='attendanceYrSecFilter' style='font-weight:400; color:#34495e; margin-right:8px; font-family:Arial, Helvetica, sans-serif;'>Filter by Year & Section:</label>
-            <select id='attendanceYrSecFilter' style='max-width:180px;'></select>
-          </div>
-          <div style='display:flex;align-items:center;justify-content:flex-end;'>
-            <button id='printAttendanceBtn' style='background:#1abc9c; color:#fff; border:none; padding:8px 18px; border-radius:6px; font-size:1em; font-weight:600; cursor:pointer;'>Print</button>
-          </div>
+        <div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;'>
+          <h3 style='margin:0; color:#1abc9c; font-size:1.5em; font-weight:700; letter-spacing:1px;'>Attendance Sheet</h3>
+          <button id='printAttendanceBtn' style='background:#1abc9c; color:#fff; border:none; padding:8px 14px; border-radius:6px; font-size:0.95em; font-weight:600; cursor:pointer;'>Print</button>
+        </div>
+        <div style='margin-bottom:10px; color:#2563eb; font-size:1.05em; font-weight:600;'>${eventName ? 'Event: ' + eventName : ''}</div>
+        <div style='margin-bottom:18px; display:flex; align-items:center; gap:10px;'>
+          <label for='attendanceYrSecFilter' style='font-weight:400; color:#34495e; margin-right:8px; font-family:Arial, Helvetica, sans-serif;'>Filter</label>
+          <select id='attendanceYrSecFilter' style='min-width:260px; height:38px; padding:6px;border:1px solid #ddd;border-radius:6px; box-sizing:border-box;'></select>
         </div>
         <div id='manualLoggingWrap' style='margin-bottom:12px;'></div>
         <div id='attendanceSheetTableWrap' style='margin-bottom:18px;'></div>
@@ -4146,8 +4144,8 @@ document.addEventListener('DOMContentLoaded', function() {
         if (manualWrap) {
           manualWrap.innerHTML = `
             <div style='display:flex;gap:8px;align-items:center;flex-wrap:nowrap;'>
-              <input id='manualSearchName' placeholder='Search student name' style='flex:1;min-width:160px;padding:8px;border:1px solid #ddd;border-radius:6px;font-family:Arial, Helvetica, sans-serif;' />
-              <button id='manualLogBtn' style='background:#1abc9c;color:#fff;padding:8px 14px;border:none;border-radius:6px;cursor:pointer;font-weight:600;'>Log Time</button>
+            <input id='manualSearchName' placeholder='Search student name' style='flex:1;min-width:260px;height:38px;padding:8px;border:1px solid #ddd;border-radius:6px;font-family:Arial, Helvetica, sans-serif;box-sizing:border-box;' />
+            <button id='manualLogBtn' style='background:#1abc9c;color:#fff;padding:8px 14px;border:none;border-radius:6px;cursor:pointer;font-weight:600;height:38px;display:inline-flex;align-items:center;'>Log Time</button>
               <span id='manualLogMsg' style='margin-left:8px;color:green;white-space:nowrap;'></span>
             </div>`;
 
