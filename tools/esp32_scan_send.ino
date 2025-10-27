@@ -19,6 +19,7 @@
 #include <Wire.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <Adafruit_Fingerprint.h>
 #include <vector>
 #include <algorithm>
@@ -69,7 +70,10 @@ byte colPins[COLS] = {19, 18, 5};
 // --- CONFIG ---
 const char* ssid = "GlobeAtHome_E2C37_2.4";
 const char* password = "DBE46507";
-const char* serverBase = "http://192.168.254.104:5000";
+// Use your deployed Render app (HTTPS). We use WiFiClientSecure with setInsecure()
+// to accept the TLS certificate from Render. For production, pin the cert or
+// validate properly.
+const char* serverBase = "https://fingerprint-system.onrender.com";
 
 // --- SENSOR & PERIPHERAL OBJECTS ---
 HardwareSerial fingerSerial(2);
@@ -108,12 +112,10 @@ void ledFlashFailure() {
 // ======================================================================================
 
 String getTimestamp() {
-  DateTime now = rtc.now();
-  // RTClib DateTime doesn't reliably expose an isValid() on all ports.
-  // Consider the RTC valid if year >= 2000 and the unix time looks reasonable.
-  if (now.year() < 2000) {
+  if (!rtc.now().isValid()) {
     return "1970-01-01T00:00:00";
   }
+  DateTime now = rtc.now();
   char buf[20];
   snprintf(buf, sizeof(buf), "%04d-%02d-%02dT%02d:%02d:%02d",
            now.year(), now.month(), now.day(),
@@ -136,30 +138,15 @@ void displayHomeScreen() {
   String dt = getTimestamp();
   String date = dt.substring(0, 10);
   String time = dt.substring(11, 19);
-  // If RTC is not set, getTimestamp() returns the sentinel 1970 value.
-  if (dt.startsWith("1970")) {
-    displayMessage("  Student Biometric", "   RTC NOT SET", "", "Status: HOME (Idle)");
-  } else {
-    displayMessage("  Student Biometric", "      " + date, "      " + time, "Status: HOME (Idle)");
-  }
+  displayMessage("  Student Biometric", "      " + date, "      " + time, "Status: HOME (Idle)");
 }
 
 void displayModeScreen() {
   String modeStr = (currentMode == MODE_TIME_IN) ? "TIME-IN" : "TIME-OUT";
-  String dt = getTimestamp();
-  bool rtcValid = !dt.startsWith("1970");
   if (currentEventId.length() == 0) {
-    if (!rtcValid) {
-      displayMessage("MODE: " + modeStr, "!! NO ACTIVE EVENT !!", "RTC: NOT SET", " (Check server)");
-    } else {
-      displayMessage("MODE: " + modeStr, "!! NO ACTIVE EVENT !!", "", " (Check server)");
-    }
+    displayMessage("MODE: " + modeStr, "!! NO ACTIVE EVENT !!", "", " (Check server)");
   } else {
-    if (!rtcValid) {
-      displayMessage("MODE: " + modeStr, "Event: " + currentEventName.substring(0, 13), "RTC: NOT SET", "Place finger to log...");
-    } else {
-      displayMessage("MODE: " + modeStr, "Event: " + currentEventName.substring(0, 13), "Place finger on", "sensor to log...");
-    }
+    displayMessage("MODE: " + modeStr, "Event: " + currentEventName.substring(0, 13), "Place finger on", "sensor to log...");
   }
 }
 
@@ -311,29 +298,31 @@ bool postAttendance(uint16_t fpID, const char* type) {
     return false;
   }
   HTTPClient http;
+  WiFiClientSecure client;
+  client.setInsecure(); // Accept any cert (insecure). Replace with cert pinning for production.
   String url = String(serverBase) + "/esp-log";
-  http.begin(url);
+  http.begin(client, url);
   http.addHeader("Content-Type", "application/json");
   String timestamp = getTimestamp();
   String body = "{\"fingerprintID\": " + String(fpID) + ", \"eventId\": \"" + currentEventId + "\", \"type\": \"" + String(type) + "\", \"timestamp\": \"" + timestamp + "\" }";
   int code = http.POST(body);
   if (code == 200 || code == 201) {
     Serial.printf("Logged %s: fp=%d event=%s\n", type, fpID, currentEventName.c_str());
-    http.end();
+  http.end();
     ledFlashSuccess();
     if (strcmp(type, "Time-In") == 0) { studentsTimeIn.push_back(fpID); }
     return true;
   } else if (code == 404) {
     Serial.println("No Active Event (server returned 404)");
     displayMessage("--- FAILED ---", "No Active Event", "(Server 404)", "Refreshing...", 1500);
-    http.end();
+  http.end();
     refreshActiveEvent();
     ledFlashFailure();
     return false;
   } else {
     Serial.print("POST /esp-log error: "); Serial.println(code);
     displayMessage("--- FAILED ---", "Server Error", "Code: " + String(code), "", 1500);
-    http.end();
+  http.end();
     ledFlashFailure();
     return false;
   }
@@ -346,8 +335,10 @@ void refreshActiveEvent() {
     return;
   }
   HTTPClient http;
+  WiFiClientSecure client;
+  client.setInsecure();
   String url = String(serverBase) + "/events/active";
-  http.begin(url);
+  http.begin(client, url);
   int code = http.GET();
   String oldEventId = currentEventId;
   if (code == 200) {
