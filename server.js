@@ -630,22 +630,42 @@ app.post("/esp-log", async (req, res) => {
     };
 
 		// --- START: Time window helpers for Time-In / Time-Out enforcement ---
-		// Parse event date + time into a JS Date. Returns null if cannot parse.
+		// Parse event date + time into a JS Date (local time). Returns null if cannot parse.
 		function parseEventDateTime(ev, timeStr) {
 			try {
 				if (!ev) return null;
-				const datePart = ev.date || ev.createdAt || '';
-				if (!datePart || !timeStr) return null;
-				// Try standard ISO like 'YYYY-MM-DDTHH:MM' or 'YYYY-MM-DDTHH:MM:SS'
-				let iso = `${datePart}T${timeStr}`;
-				let d = new Date(iso);
-				if (!isNaN(d.getTime())) return d;
-				// Fallback: try space-separated
-				d = new Date(`${datePart} ${timeStr}`);
-				if (!isNaN(d.getTime())) return d;
-				// Fallback: try parsing timeStr alone
-				d = new Date(timeStr);
-				if (!isNaN(d.getTime())) return d;
+				const rawDate = ev.date || ev.createdAt || '';
+				if (!rawDate || !timeStr) return null;
+
+				// Parse timeStr (HH:MM or HH:MM:SS)
+				const tmatch = String(timeStr).match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+				let hh = 0, mm = 0, ss = 0;
+				if (tmatch) {
+					hh = Number(tmatch[1]);
+					mm = Number(tmatch[2]);
+					ss = tmatch[3] ? Number(tmatch[3]) : 0;
+				} else {
+					// if timeStr is not parseable, bail
+					return null;
+				}
+
+				// Try to parse rawDate as a Date first
+				const parsedDate = new Date(rawDate);
+				if (!isNaN(parsedDate.getTime())) {
+					const y = parsedDate.getFullYear();
+					const mo = parsedDate.getMonth();
+					const day = parsedDate.getDate();
+					return new Date(y, mo, day, hh, mm, ss);
+				}
+
+				// Fallback: extract YYYY-MM-DD from rawDate string
+				const m = String(rawDate).match(/^(\d{4})-(\d{2})-(\d{2})/);
+				if (m) {
+					const y = Number(m[1]);
+					const mo = Number(m[2]) - 1;
+					const day = Number(m[3]);
+					return new Date(y, mo, day, hh, mm, ss);
+				}
 			} catch (e) { /* ignore parse errors */ }
 			return null;
 		}
