@@ -629,80 +629,7 @@ app.post("/esp-log", async (req, res) => {
       timeEnd: event.timeEnd
     };
 
-		// --- START: Time window helpers for Time-In / Time-Out enforcement ---
-		// Parse event date + time into a JS Date (local time). Returns null if cannot parse.
-		function parseEventDateTime(ev, timeStr) {
-			try {
-				if (!ev) return null;
-				const rawDate = ev.date || ev.createdAt || '';
-				if (!rawDate || !timeStr) return null;
 
-				// Parse timeStr (HH:MM or HH:MM:SS)
-				const tmatch = String(timeStr).match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-				let hh = 0, mm = 0, ss = 0;
-				if (tmatch) {
-					hh = Number(tmatch[1]);
-					mm = Number(tmatch[2]);
-					ss = tmatch[3] ? Number(tmatch[3]) : 0;
-				} else {
-					// if timeStr is not parseable, bail
-					return null;
-				}
-
-				// Try to parse rawDate as a Date first
-				const parsedDate = new Date(rawDate);
-				if (!isNaN(parsedDate.getTime())) {
-					const y = parsedDate.getFullYear();
-					const mo = parsedDate.getMonth();
-					const day = parsedDate.getDate();
-					return new Date(y, mo, day, hh, mm, ss);
-				}
-
-				// Fallback: extract YYYY-MM-DD from rawDate string
-				const m = String(rawDate).match(/^(\d{4})-(\d{2})-(\d{2})/);
-				if (m) {
-					const y = Number(m[1]);
-					const mo = Number(m[2]) - 1;
-					const day = Number(m[3]);
-					return new Date(y, mo, day, hh, mm, ss);
-				}
-			} catch (e) { /* ignore parse errors */ }
-			return null;
-		}
-
-		// Determine the reference time for the log: use provided timestamp when available
-		let timeNow = null;
-		if (typeof timestamp !== 'undefined' && timestamp !== null) {
-			try {
-				// Accept numeric ms or ISO string
-				const tnum = Number(timestamp);
-				if (!isNaN(tnum) && String(timestamp).trim() !== '') {
-					timeNow = new Date(tnum);
-				} else {
-					const tparsed = new Date(String(timestamp));
-					if (!isNaN(tparsed.getTime())) timeNow = tparsed;
-				}
-			} catch (e) { /* ignore */ }
-		}
-		if (!timeNow) timeNow = new Date();
-
-		const scheduledStart = parseEventDateTime(event, event.timeStart);
-		const scheduledEnd = parseEventDateTime(event, event.timeEnd);
-
-		// Compute enforcement booleans. If schedule times cannot be parsed, allow by default
-		let allowedTimeIn = true;
-		if (scheduledStart && !isNaN(scheduledStart.getTime())) {
-			const startWindowOpen = new Date(scheduledStart.getTime() - (60 * 60 * 1000)); // 1 hour before
-			const startWindowClose = new Date(scheduledStart.getTime() + (2 * 60 * 60 * 1000)); // 2 hours after
-			allowedTimeIn = (timeNow >= startWindowOpen && timeNow <= startWindowClose);
-		}
-
-		let allowedTimeOut = true;
-		if (scheduledEnd && !isNaN(scheduledEnd.getTime())) {
-			// Only allow time-out on or after scheduled end
-			allowedTimeOut = (timeNow >= scheduledEnd);
-		}
-		// --- END: Time window helpers ---
 
     // Log which event was used for easier debugging
     console.log('ESP log for FID=' + fingerprintID + ' -> event: ' + eventName + ' (id: ' + event._id + ')', 'type:', type);
@@ -767,20 +694,16 @@ app.post("/esp-log", async (req, res) => {
       record = await Attendance.findOne({ event_name: eventName, fingerprintID });
     }
 
-    // If type explicitly requests Time-In
+		// If type explicitly requests Time-In
 		if (normType === 'time-in' || normType === 'timein' || normType === 'time in') {
 			if (!record) {
-				// Enforce allowed time-in window
-				if (!allowedTimeIn) {
-					return res.status(403).json({ error: 'Time-In not allowed at this time for the event (allowed: 1 hour before start up to 2 hours after start).', event: eventSummary, now: timeNow });
-				}
-				// Create a new Time-In record (use timeNow which may be supplied by device)
+				// Create a new Time-In record
 				record = new Attendance({
 					event_id: eventIdStr,
 					event_name: eventName,
 					fingerprintID,
 					name: student["NAME"],
-					timeIn: timeNow,
+					timeIn: new Date(),
 				});
 				await record.save();
 				return res.status(201).json({ message: "Time-In logged", record, event: eventSummary });
@@ -789,21 +712,17 @@ app.post("/esp-log", async (req, res) => {
 			return res.status(200).json({ message: "Time Log already exists", record, event: eventSummary });
 		}
 
-    // If type explicitly requests Time-Out
+		// If type explicitly requests Time-Out
 		if (normType === 'time-out' || normType === 'timeout' || normType === 'time out') {
 			if (!record) {
 				// Do not create new record on Time-Out attempts; require a prior Time-In
 				return res.status(404).json({ error: "No Time-In record found for this fingerprint. Cannot log Time-Out.", event: eventSummary });
 			}
 			if (!record.timeOut) {
-				// Enforce allowed time-out: only on or after scheduled end
-				if (!allowedTimeOut) {
-					return res.status(403).json({ error: 'Time-Out not allowed before the scheduled event end time.', event: eventSummary, now: timeNow });
-				}
 				// ensure event_id/event_name are present in older records
 				record.event_id = record.event_id || eventIdStr;
 				record.event_name = record.event_name || eventName;
-				record.timeOut = timeNow;
+				record.timeOut = new Date();
 				await record.save();
 				return res.status(201).json({ message: "Time-Out logged", record, event: eventSummary });
 			}
@@ -816,15 +735,12 @@ app.post("/esp-log", async (req, res) => {
     // - If both present -> inform already logged
 		if (!record) {
 			// First log: create record with timeIn
-			if (!allowedTimeIn) {
-				return res.status(403).json({ error: 'Time-In not allowed at this time for the event (allowed: 1 hour before start up to 2 hours after start).', event: eventSummary, now: timeNow });
-			}
 			record = new Attendance({
 				event_id: eventIdStr,
 				event_name: eventName,
 				fingerprintID,
 				name: student["NAME"],
-				timeIn: timeNow,
+				timeIn: new Date(),
 			});
 			await record.save();
 			return res.status(201).json({ message: "Time-In logged", record, event: eventSummary });
@@ -832,15 +748,11 @@ app.post("/esp-log", async (req, res) => {
 
 		if (!record.timeOut) {
 			// Second log: update record with timeOut
-			// Enforce allowed time-out: only on or after scheduled end
-			if (!allowedTimeOut) {
-				return res.status(403).json({ error: 'Time-Out not allowed before the scheduled event end time.', event: eventSummary, now: timeNow });
-			}
- // ensure event_id/event_name are present in older records
- record.event_id = record.event_id || eventIdStr;
- record.event_name = record.event_name || eventName;
- record.timeOut = timeNow;
- await record.save();
+			// ensure event_id/event_name are present in older records
+			record.event_id = record.event_id || eventIdStr;
+			record.event_name = record.event_name || eventName;
+			record.timeOut = new Date();
+			await record.save();
 			return res.status(201).json({ message: "Time-Out logged", record, event: eventSummary });
 		}
 
